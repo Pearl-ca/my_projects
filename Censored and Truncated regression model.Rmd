@@ -1,0 +1,101 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(stargazer)
+install.packages('truncreg')
+library(truncreg) #truncated regression model
+install.packages('censReg')
+library(censReg) #Tobit model, censored regression model
+install.packages('crch')
+library(crch) #censored regression with conditional heteroskedasticity, flexible models
+load(url("http://kodu.ut.ee/~avork/files/oppetoo/micro/piaacHWTobitHeckmanPII2020.Rdata")) 
+```
+
+```{r}
+#Analyse distribution of hours worked, fraction of zero hours, distribution of hourly wages, fraction of missing wages
+hist(dfr$whours)
+hist(dfr$whours[dfr$whours>0])
+prop.table(table(dfr$whours==0))
+hist(dfr$lwageh)
+
+```
+
+```{r}
+library(censReg) 
+mytobit<- censReg( whours ~ age + edcat + immig + goodhealth + mathskill1 + children,  left=0, data=dfr )
+summary(mytobit)
+
+```
+Positive coefficients mean that latent dependent variable y
+i increases if x increases
+Probability that y > 0 increases and yi increases if x increases
+edcat sec is not in ex direction
+children is not in the expected direction
+```{r}
+me.mytobit<- margEff(mytobit) 
+summary(me.mytobit)
+
+```
+If explanatory variable increases by one unit, how much observed value, conditional that it
+is not censored, increases on average
+If kids increase increases by one unit, then observed hours incr by 0..86 hours  per week
+```{r}
+#probit model
+dfr$whourspos<-(dfr$whours>0)*1
+myprobit<- glm(whourspos ~ age + edcat + immig + goodhealth + mathskill1 + children, family=binomial(link="probit"), data=dfr )
+summary(myprobit)
+
+```
+
+```{r}
+#Truncated regression
+library(truncreg)
+mytruncreg<- truncreg(whours ~ age + edcat + immig + goodhealth + mathskill1 + children, point=0, direction= "left", subset =whours>0, data=dfr)
+summary(mytruncreg)
+
+```
+
+```{r}
+round(cbind(
+  "Tobit"     = coef(mytobit)[1:15] /exp(coef(mytobit)[16]),
+  "Binary"    = coef(myprobit),
+  "Truncated" = coef(mytruncreg)[1:15] / coef(mytruncreg)[16]),4)
+
+```
+tobit model is not reasonable
+```{r}
+LRtest <- as.numeric(2*(logLik(myprobit) +  logLik(mytruncreg) - logLik(mytobit)))
+#Difference in degrees of freedom:
+dof= length(coefficients(myprobit)) + length(coefficients(mytruncreg)) - length(coefficients(mytobit))
+pchisq(LRtest, dof, lower.tail = FALSE)
+
+```
+tobit is not fine the two part flexible model is better
+```{r}
+install.packages('sampleSelection')
+library(sampleSelection)
+myheckman <- selection(whourspos ~ age + edcat  + immig + mathskill1 + goodhealth + children, lwageh ~ age + edcat + immig + mathskill1 , data=dfr)
+summary(myheckman)
+
+```
+yes it has the expected signs.
+If education increases by one year,
+then average wage increases
+10.8% (or 10.9% in the two-step
+estimator)
+those with uppersec are less likely to partcipate and postsec more likely to participate
+both earn more compared to lowersec.
+wages increases with age
+mathskills increases wages
+we dont need heckman selection models
+```{r}
+myolswage <- lm(lwageh ~ age + male + edcat + geo + immig + mathskill1 , data=dfr) 
+stargazer(myheckman, myolswage, type="text", no.space = TRUE)
+
+```
+no much difference, we should use ols on observed variables is ok
